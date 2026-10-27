@@ -1,0 +1,120 @@
+<!doctype html>
+<!--
+  ESP32 LED control page (Web Bluetooth)
+
+  Works with the ble_led.ino sketch. Open it in:
+    - Bluefy (iPhone)           - Chrome (Android)
+  It must be served over HTTPS (e.g. GitHub Pages) for Bluetooth to work.
+
+  If you change the UUIDs in the sketch, change them below too.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ESP32 LED</title>
+  <style>
+    body {
+      font-family: -apple-system, system-ui, sans-serif;
+      background: #111; color: #eee;
+      display: flex; flex-direction: column; align-items: center;
+      padding: 24px 16px; margin: 0;
+    }
+    h1 { font-size: 1.4rem; margin: 0 0 8px; }
+    #status { margin: 0 0 24px; color: #aaa; text-align: center; min-height: 1.4em; }
+    button {
+      width: 100%; max-width: 320px; padding: 20px; margin: 8px 0;
+      font-size: 1.2rem; border: 0; border-radius: 14px;
+      color: #fff; background: #3a3a3c;
+    }
+    button:disabled { opacity: 0.35; }
+    #connect { background: #0a84ff; }
+    #on  { background: #30a14e; }
+    #off { background: #c0392b; }
+  </style>
+</head>
+<body>
+  <h1>ESP32 LED</h1>
+  <p id="status">Not connected</p>
+
+  <button id="connect">Connect</button>
+  <button id="on" disabled>LED ON</button>
+  <button id="off" disabled>LED OFF</button>
+
+  <script>
+    // Must match the sketch exactly
+    const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+    const CHAR_UUID    = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+
+    // What gets sent to the board (the sketch checks the first character)
+    const ON_TEXT  = "1";
+    const OFF_TEXT = "0";
+
+    let device = null;
+    let characteristic = null;
+
+    const $ = id => document.getElementById(id);
+    const setStatus = t => { $("status").textContent = t; };
+
+    function setConnected(isConnected) {
+      $("on").disabled  = !isConnected;
+      $("off").disabled = !isConnected;
+      $("connect").textContent = isConnected ? "Disconnect" : "Connect";
+    }
+
+    async function connect() {
+      if (!navigator.bluetooth) {
+        setStatus("Web Bluetooth isn't supported here. Open this page in Bluefy (iPhone) or Chrome (Android).");
+        return;
+      }
+      try {
+        setStatus("Choose your device...");
+        device = await navigator.bluetooth.requestDevice({
+          // Shows only devices advertising our service.
+          // If yours doesn't appear, replace this line with:
+          //   acceptAllDevices: true, optionalServices: [SERVICE_UUID]
+          filters: [{ services: [SERVICE_UUID] }]
+        });
+
+        device.addEventListener("gattserverdisconnected", () => {
+          setConnected(false);
+          setStatus("Disconnected");
+        });
+
+        setStatus("Connecting...");
+        const server  = await device.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
+        characteristic = await service.getCharacteristic(CHAR_UUID);
+
+        // Listen for the "ON" / "OFF" text the board sends back
+        await characteristic.startNotifications();
+        characteristic.addEventListener("characteristicvaluechanged", e => {
+          const text = new TextDecoder().decode(e.target.value);
+          setStatus("LED is " + text);
+        });
+
+        setConnected(true);
+        setStatus("Connected");
+      } catch (err) {
+        setConnected(false);
+        setStatus("Error: " + err.message);
+      }
+    }
+
+    async function send(text) {
+      try {
+        await characteristic.writeValue(new TextEncoder().encode(text));
+      } catch (err) {
+        setStatus("Send failed: " + err.message);
+      }
+    }
+
+    $("connect").addEventListener("click", () => {
+      if (device && device.gatt.connected) device.gatt.disconnect();
+      else connect();
+    });
+    $("on").addEventListener("click",  () => send(ON_TEXT));
+    $("off").addEventListener("click", () => send(OFF_TEXT));
+  </script>
+</body>
+</html>
