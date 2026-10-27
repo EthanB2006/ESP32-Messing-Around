@@ -31,6 +31,18 @@
     #connect { background: #0a84ff; }
     #switch { background: #30a14e; }        /* green: press to turn ON */
     #switch.is-on { background: #c0392b; }  /* red: press to turn OFF */
+    #joy {
+      position: relative; width: 100%; max-width: 320px; height: 70px;
+      margin: 24px 0 8px; border-radius: 35px; background: #2a2a2c;
+      touch-action: none;   /* stops the page scrolling while you drag */
+      opacity: 0.35;
+    }
+    #joy.active { opacity: 1; }
+    #knob {
+      position: absolute; top: 5px; left: calc(50% - 30px);
+      width: 60px; height: 60px; border-radius: 50%; background: #0a84ff;
+    }
+    #joyValue { color: #aaa; margin: 0; }
   </style>
 </head>
 <body>
@@ -39,11 +51,14 @@
 
   <button id="connect">Connect</button>
   <button id="switch" disabled>Turn LED ON</button>
+  <div id="joy"><div id="knob"></div></div>
+  <p id="joyValue">0</p> 
 
   <script>
     // Must match the sketch exactly
     const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
     const CHAR_UUID    = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+    const JOY_CHAR_UUID = "1c95d5e3-d8f7-413a-bf3d-7a2e5d7be87c";
 
     // What gets sent to the board (the sketch checks the first character)
     const ON_TEXT  = "1";
@@ -53,6 +68,12 @@
     let characteristic = null;
     let ledOn = false;
 
+    let joyChar = null;
+    let joyValue = 0;      // current joystick position, -100 to 100
+    let lastSent = null;   // last value actually sent
+    let dragging = false;
+    let sending = false;
+
     const $ = id => document.getElementById(id);
     const setStatus = t => { $("status").textContent = t; };
 
@@ -61,6 +82,8 @@
       if (!isConnected) ledOn = false;   // forget the state when disconnected
       updateSwitch();
       $("connect").textContent = isConnected ? "Disconnect" : "Connect";
+      if (!isConnected) joyChar = null;
+      $("joy").classList.toggle("active", isConnected);
     }
 
     function updateSwitch() {
@@ -93,6 +116,8 @@
         const server  = await device.gatt.connect();
         const service = await server.getPrimaryService(SERVICE_UUID);
         characteristic = await service.getCharacteristic(CHAR_UUID);
+        joyChar = await service.getCharacteristic(JOY_CHAR_UUID);
+        lastSent = null;
 
         // Listen for the "ON" / "OFF" text the board sends back
         await characteristic.startNotifications();
@@ -124,6 +149,47 @@
       else connect();
     });
     $("switch").addEventListener("click", () => send(ledOn ? OFF_TEXT : ON_TEXT));
+
+    const joy = $("joy"), knob = $("knob");
+
+    function moveKnob(clientX) {
+      const rect = joy.getBoundingClientRect();
+      const travel = (rect.width - knob.offsetWidth) / 2;   // max distance from centre
+      const centre = rect.left + rect.width / 2;
+      const offset = Math.max(-travel, Math.min(travel, clientX - centre));
+      knob.style.transform = `translateX(${offset}px)`;
+      joyValue = Math.round(offset / travel * 100);
+      $("joyValue").textContent = joyValue;
+    }
+
+    function releaseKnob() {
+      if (!dragging) return;
+      dragging = false;
+      knob.style.transform = "translateX(0)";   // spring back to centre
+      joyValue = 0;
+      $("joyValue").textContent = 0;
+    }
+
+    joy.addEventListener("pointerdown", e => {
+      if (!joyChar) return;          // ignore until connected
+      dragging = true;
+      joy.setPointerCapture(e.pointerId);
+      moveKnob(e.clientX);
+    });
+    joy.addEventListener("pointermove", e => { if (dragging) moveKnob(e.clientX); });
+    joy.addEventListener("pointerup", releaseKnob);
+    joy.addEventListener("pointercancel", releaseKnob);
+
+    // Send the value up to 20 times a second, but only when it has changed
+    setInterval(async () => {
+      if (!joyChar || sending || joyValue === lastSent) return;
+      sending = true;
+      try {
+        await joyChar.writeValueWithoutResponse(new Int8Array([joyValue]));
+        lastSent = joyValue;
+      } catch (err) { /* busy, so it will retry on the next tick */ }
+      sending = false;
+    }, 50);
   </script>
 </body>
 </html>
