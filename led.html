@@ -29,8 +29,8 @@
     }
     button:disabled { opacity: 0.35; }
     #connect { background: #0a84ff; }
-    #on  { background: #30a14e; }
-    #off { background: #c0392b; }
+    #switch { background: #30a14e; }        /* green: press to turn ON */
+    #switch.is-on { background: #c0392b; }  /* red: press to turn OFF */
   </style>
 </head>
 <body>
@@ -38,8 +38,7 @@
   <p id="status">Not connected</p>
 
   <button id="connect">Connect</button>
-  <button id="on" disabled>LED ON</button>
-  <button id="off" disabled>LED OFF</button>
+  <button id="switch" disabled>Turn LED ON</button>
 
   <script>
     // Must match the sketch exactly
@@ -52,14 +51,22 @@
 
     let device = null;
     let characteristic = null;
+    let ledOn = false;
 
     const $ = id => document.getElementById(id);
     const setStatus = t => { $("status").textContent = t; };
 
     function setConnected(isConnected) {
-      $("on").disabled  = !isConnected;
-      $("off").disabled = !isConnected;
+      $("switch").disabled  = !isConnected;
+      if (!isConnected) ledOn = false;   // forget the state when disconnected
+      updateSwitch();
       $("connect").textContent = isConnected ? "Disconnect" : "Connect";
+    }
+
+    function updateSwitch() {
+      const btn = $("switch");
+      btn.textContent = ledOn ? "Turn LED OFF" : "Turn LED ON";
+      btn.classList.toggle("is-on", ledOn);
     }
 
     async function connect() {
@@ -70,10 +77,11 @@
       try {
         setStatus("Choose your device...");
         device = await navigator.bluetooth.requestDevice({
-          // Shows only devices advertising our service.
-          // If yours doesn't appear, replace this line with:
-          //   acceptAllDevices: true, optionalServices: [SERVICE_UUID]
-          filters: [{ services: [SERVICE_UUID] }]
+          // Shows only devices advertising our service:
+          // filters: [{ services: [SERVICE_UUID] }]
+
+          // Shows All
+          acceptAllDevices: true, optionalServices: [SERVICE_UUID]
         });
 
         device.addEventListener("gattserverdisconnected", () => {
@@ -90,6 +98,8 @@
         await characteristic.startNotifications();
         characteristic.addEventListener("characteristicvaluechanged", e => {
           const text = new TextDecoder().decode(e.target.value);
+          ledOn = text.trim().toUpperCase() === "ON";
+          updateSwitch();
           setStatus("LED is " + text);
         });
 
@@ -113,8 +123,7 @@
       if (device && device.gatt.connected) device.gatt.disconnect();
       else connect();
     });
-    $("on").addEventListener("click",  () => send(ON_TEXT));
-    $("off").addEventListener("click", () => send(OFF_TEXT));
+    $("switch").addEventListener("click", () => send(ledOn ? OFF_TEXT : ON_TEXT));
   </script>
 </body>
 </html>
