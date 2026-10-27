@@ -165,7 +165,7 @@
     function releaseKnob() {
       if (!dragging) return;
       dragging = false;
-      knob.style.transform = "translateX(0)";   // spring back to centre
+      // knob.style.transform = "translateX(0)";   // spring back to centre
       joyValue = 0;
       $("joyValue").textContent = 0;
     }
