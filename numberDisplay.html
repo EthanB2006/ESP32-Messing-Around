@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Number Output</title>
+  <style>
+    body {
+      font-family: -apple-system, system-ui, sans-serif;
+      background: #111; color: #eee;
+      display: flex; flex-direction: column; align-items: center;
+      padding: 24px 16px; margin: 0;
+    }
+    h1 { font-size: 1.4rem; margin: 0 0 16px; }
+    button {
+      font-size: 1rem; padding: 12px 24px; border: 0; border-radius: 8px;
+      background: #2a7fff; color: #fff;
+    }
+    #value { font-size: 4rem; font-weight: 600; margin: 32px 0 8px; }
+    #status { color: #999; font-size: 0.9rem; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>Number Output</h1>
+  <button id="connect">Connect</button>
+  <div id="value">--</div>
+  <div id="status">Not connected</div>
+
+  <script>
+    const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+    const CHAR_UUID    = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+
+    let device = null;
+
+    const $ = id => document.getElementById(id);
+    const setStatus = t => { $("status").textContent = t; };
+
+    function setConnected(isConnected) {
+      $("connect").textContent = isConnected ? "Disconnect" : "Connect";
+      if (!isConnected) $("value").textContent = "--";
+    }
+
+    async function connect() {
+      if (!navigator.bluetooth) {
+        setStatus("Web Bluetooth isn't supported here. Use Bluefy (iPhone) or Chrome (Android).");
+        return;
+      }
+      try {
+        setStatus("Choose your device...");
+        device = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: [SERVICE_UUID]
+        });
+
+        device.addEventListener("gattserverdisconnected", () => {
+          setConnected(false);
+          setStatus("Disconnected");
+        });
+
+        setStatus("Connecting...");
+        const server  = await device.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
+        const characteristic = await service.getCharacteristic(CHAR_UUID);
+
+        // The ESP32 sends the number as text, e.g. "42"
+        characteristic.addEventListener("characteristicvaluechanged", e => {
+          $("value").textContent = new TextDecoder().decode(e.target.value);
+        });
+        await characteristic.startNotifications();
+
+        setConnected(true);
+        setStatus("Connected");
+      } catch (err) {
+        setConnected(false);
+        setStatus("Error: " + err.message);
+      }
+    }
+
+    $("connect").addEventListener("click", () => {
+      if (device && device.gatt.connected) device.gatt.disconnect();
+      else connect();
+    });
+  </script>
+</body>
+</html>
