@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
+  <meta charset="utf-16">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Number Output</title>
   <style>
@@ -48,8 +48,7 @@
       try {
         setStatus("Choose your device...");
         device = await navigator.bluetooth.requestDevice({
-          acceptAllDevices: true,
-          optionalServices: [SERVICE_UUID]
+          filters: [{ services: [SERVICE_UUID] }]
         });
 
         device.addEventListener("gattserverdisconnected", () => {
