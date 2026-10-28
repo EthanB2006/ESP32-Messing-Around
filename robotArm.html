@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Robot Arm Controls</title>
+  <style>
+    body {
+      font-family: -apple-system, system-ui, sans-serif;
+      background: #111; color: #eee;
+      display: flex; flex-direction: column; align-items: center;
+      padding: 24px 16px; margin: 0;
+    }
+    h1 { font-size: 1.4rem; margin: 0 0 8px; }
+    #status { margin: 0 0 24px; color: #aaa; text-align: center; min-height: 1.4em; }
+    #connect { background: #0a84ff; }
+    #joy {
+      position: relative; width: 100%; max-width: 320px; height: 70px;
+      margin: 24px 0 8px; border-radius: 35px; background: #2a2a2c;
+      touch-action: none;
+      opacity: 0.35;
+    }
+    #joy.active { opacity: 1; }
+    #knob {
+      position: absolute; top: 5px; left: calc(50% - 30px);
+      width: 60px; height: 60px; border-radius: 50%; background: #0a84ff;
+    }
+    #joyValue { color: #aaa; margin: 0; }
+  </style>
+</head>
+<body>
+  <h1>Robot Arm Controls</h1>
+  <p id="status">Not connected</p>
+
+  <button id="connect">Connect</button>
+  <div id="joy"><div id="knob"></div></div>
+  <p id="joyValue">0</p> 
+
+  <script>
+    const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+    const JOY_CHAR_UUID = "1c95d5e3-d8f7-413a-bf3d-7a2e5d7be87c";
+
+    let device = null;
+    let characteristic = null;
+
+    let joyChar = null;
+    let joyValue = 0;      // -100 to 100
+    let lastSent = null;
+    let dragging = false;
+    let sending = false;
+
+    const $ = id => document.getElementById(id);
+    const setStatus = t => { $("status").textContent = t; };
+
+    function setConnected(isConnected) {
+      $("connect").textContent = isConnected ? "Disconnect" : "Connect";
+      if (!isConnected) joyChar = null;
+      $("joy").classList.toggle("active", isConnected);
+    }
+
+    async function connect() {
+      if (!navigator.bluetooth) {
+        setStatus("Web Bluetooth isn't supported here. Open this page in Bluefy (iPhone) or Chrome (Android).");
+        return;
+      }
+      try {
+        setStatus("Choose your device...");
+        device = await navigator.bluetooth.requestDevice({
+          filters: [{ services: [SERVICE_UUID] }]
+        });
+
+        device.addEventListener("gattserverdisconnected", () => {
+          setConnected(false);
+          setStatus("Disconnected");
+        });
+
+        setStatus("Connecting...");
+        const server  = await device.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
+        joyChar = await service.getCharacteristic(JOY_CHAR_UUID);
+        lastSent = null;
+
+        setConnected(true);
+        setStatus("Connected");
+      } catch (err) {
+        setConnected(false);
+        setStatus("Error: " + err.message);
+      }
+    }
+
+    async function send(text) {
+      try {
+        await characteristic.writeValue(new TextEncoder().encode(text));
+      } catch (err) {
+        setStatus("Send failed: " + err.message);
+      }
+    }
+
+    $("connect").addEventListener("click", () => {
+      if (device && device.gatt.connected) device.gatt.disconnect();
+      else connect();
+    });
+
+    const joy = $("joy"), knob = $("knob");
+
+    function moveKnob(clientX) {
+      const rect = joy.getBoundingClientRect();
+      const travel = (rect.width - knob.offsetWidth) / 2;   // max distance from centre
+      const centre = rect.left + rect.width / 2;
+      const offset = Math.max(-travel, Math.min(travel, clientX - centre));
+      knob.style.transform = `translateX(${offset}px)`;
+      joyValue = Math.round(offset / travel * 100);
+      $("joyValue").textContent = joyValue;
+    }
+
+    function releaseKnob() {
+      if (!dragging) return;
+      dragging = false;
+    }
+
+    joy.addEventListener("pointerdown", e => {
+      if (!joyChar) return;
+      dragging = true;
+      joy.setPointerCapture(e.pointerId);
+      moveKnob(e.clientX);
+    });
+    joy.addEventListener("pointermove", e => { if (dragging) moveKnob(e.clientX); });
+    joy.addEventListener("pointerup", releaseKnob);
+    joy.addEventListener("pointercancel", releaseKnob);
+
+    setInterval(async () => {
+      if (!joyChar || sending || joyValue === lastSent) return;
+      sending = true;
+      try {
+        await joyChar.writeValueWithoutResponse(new Int8Array([joyValue]));
+        lastSent = joyValue;
+      } catch (err) { }
+      sending = false;
+    }, 50);
+  </script>
+</body>
+</html>
