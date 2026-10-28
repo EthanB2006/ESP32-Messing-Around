@@ -18,18 +18,18 @@
       background: #2a7fff; color: #fff;
     }
     #connect { background: #0a84ff; }
-    #joy {
+    .joy {
       position: relative; width: 100%; max-width: 320px; height: 70px;
       margin: 24px 0 8px; border-radius: 35px; background: #2a2a2c;
       touch-action: none;
       opacity: 0.35;
     }
-    #joy.active { opacity: 1; }
-    #knob {
+    .joy.active { opacity: 1; }
+    .knob {
       position: absolute; top: 5px; left: calc(50% - 30px);
       width: 60px; height: 60px; border-radius: 50%; background: #0a84ff;
     }
-    #joyValue { color: #aaa; margin: 0; }
+    .joyValue { color: #aaa; margin: 0; }
   </style>
 </head>
 <body>
@@ -37,8 +37,10 @@
   <p id="status">Not connected</p>
 
   <button id="connect">Connect</button>
-  <div id="joy"><div id="knob"></div></div>
-  <p id="joyValue">0</p> 
+  <div class="joy" id="joy1"><div class="knob"></div></div>
+  <p class="joyValue">0</p> 
+  <div class="joy" id="joy2"><div class="knob"></div></div>
+  <p class="joyValue">0</p> 
 
   <script>
     const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
@@ -47,7 +49,7 @@
     let device = null;
 
     let joyChar = null;
-    let joyValue = 0;      // -100 to 100
+    const joyValues = [0, 0];
     let lastSent = null;
     let dragging = false;
     let sending = false;
@@ -58,7 +60,7 @@
     function setConnected(isConnected) {
       $("connect").textContent = isConnected ? "Disconnect" : "Connect";
       if (!isConnected) joyChar = null;
-      $("joy").classList.toggle("active", isConnected);
+      document.querySelectorAll(".joy").forEach(j => j.classList.toggle("active", isConnected));
     }
 
     async function connect() {
@@ -96,39 +98,45 @@
       else connect();
     });
 
-    const joy = $("joy"), knob = $("knob");
+    function setupJoystick(joy, index) {
+      const knob = joy.querySelector(".knob");
+      const label = joy.nextElementSibling;   // the <p> right after it
+      let dragging = false;
 
-    function moveKnob(clientX) {
-      const rect = joy.getBoundingClientRect();
-      const travel = (rect.width - knob.offsetWidth) / 2;   // max distance from centre
-      const centre = rect.left + rect.width / 2;
-      const offset = Math.max(-travel, Math.min(travel, clientX - centre));
-      knob.style.transform = `translateX(${offset}px)`;
-      joyValue = Math.round(offset / travel * 100);
-      $("joyValue").textContent = joyValue;
+      function moveKnob(clientX) {
+        const rect = joy.getBoundingClientRect();
+        const travel = (rect.width - knob.offsetWidth) / 2;
+        const centre = rect.left + rect.width / 2;
+        const offset = Math.max(-travel, Math.min(travel, clientX - centre));
+        knob.style.transform = `translateX(${offset}px)`;
+        joyValues[index] = Math.round(offset / travel * 100);
+        label.textContent = joyValues[index];
+      }
+
+      function release() { dragging = false; }
+
+      joy.addEventListener("pointerdown", e => {
+        if (!joyChar) return;
+        dragging = true;
+        joy.setPointerCapture(e.pointerId);
+        moveKnob(e.clientX);
+      });
+      joy.addEventListener("pointermove", e => { if (dragging) moveKnob(e.clientX); });
+      joy.addEventListener("pointerup", release);
+      joy.addEventListener("pointercancel", release);
     }
 
-    function releaseKnob() {
-      if (!dragging) return;
-      dragging = false;
-    }
-
-    joy.addEventListener("pointerdown", e => {
-      if (!joyChar) return;
-      dragging = true;
-      joy.setPointerCapture(e.pointerId);
-      moveKnob(e.clientX);
-    });
-    joy.addEventListener("pointermove", e => { if (dragging) moveKnob(e.clientX); });
-    joy.addEventListener("pointerup", releaseKnob);
-    joy.addEventListener("pointercancel", releaseKnob);
+    setupJoystick($("joy1"), 0);
+    setupJoystick($("joy2"), 1);
 
     setInterval(async () => {
-      if (!joyChar || sending || joyValue === lastSent) return;
+      if (!joyChar || sending) return;
+      const key = joyValues.join(",");
+      if (key === lastSent) return;
       sending = true;
       try {
-        await joyChar.writeValueWithoutResponse(new Int8Array([joyValue]));
-        lastSent = joyValue;
+        await joyChar.writeValueWithoutResponse(new Int8Array(joyValues));
+        lastSent = key;
       } catch (err) { }
       sending = false;
     }, 50);
