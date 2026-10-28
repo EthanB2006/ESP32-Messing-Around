@@ -45,7 +45,6 @@
     const JOY_CHAR_UUID = "1c95d5e3-d8f7-413a-bf3d-7a2e5d7be87c";
 
     let device = null;
-    let characteristic = null;
 
     let joyChar = null;
     let joyValue = 0;      // -100 to 100
@@ -89,14 +88,6 @@
       } catch (err) {
         setConnected(false);
         setStatus("Error: " + err.message);
-      }
-    }
-
-    async function send(text) {
-      try {
-        await characteristic.writeValue(new TextEncoder().encode(text));
-      } catch (err) {
-        setStatus("Send failed: " + err.message);
       }
     }
 
