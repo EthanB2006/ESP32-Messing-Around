@@ -1,9 +1,10 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="uint16_t">
+  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Number Output</title>
+
   <style>
     body {
       font-family: -apple-system, system-ui, sans-serif;
@@ -18,6 +19,27 @@
     }
     #value { font-size: 4rem; font-weight: 600; margin: 32px 0 8px; }
     #status { color: #999; font-size: 0.9rem; text-align: center; }
+    .flbr {
+        display: grid;
+        grid-template-columns: repeat(3, 60px);
+        grid-template-rows: repeat(2, 60px);
+        gap: 8px;
+        width: max-content;
+    }
+
+    .flbr button {
+        font-size: 1.2rem;
+        padding: 0;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+    }
+
+    .f { grid-column: 2; grid-row: 1; }
+    .l { grid-column: 1; grid-row: 2; }
+    .b { grid-column: 2; grid-row: 2; }
+    .r { grid-column: 3; grid-row: 2; }
   </style>
 </head>
 <body>
@@ -26,11 +48,19 @@
   <div id="value">--</div>
   <div id="status">Not connected</div>
 
+  <div class="flbr">
+    <button class="f" data-cmd="F">F</button>
+    <button class="l" data-cmd="L">L</button>
+    <button class="b" data-cmd="B">B</button>
+    <button class="r" data-cmd="R">R</button>
+  </div>
+
   <script>
     const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
     const CHAR_UUID    = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
 
     let device = null;
+    let commandChar = null;
 
     const $ = id => document.getElementById(id);
     const setStatus = t => { $("status").textContent = t; };
@@ -53,6 +83,7 @@
 
         device.addEventListener("gattserverdisconnected", () => {
           setConnected(false);
+          commandChar = null;
           setStatus("Disconnected");
         });
 
@@ -60,6 +91,7 @@
         const server  = await device.gatt.connect();
         const service = await server.getPrimaryService(SERVICE_UUID);
         const characteristic = await service.getCharacteristic(CHAR_UUID);
+        commandChar = characteristic;
 
         // The ESP32 sends the number as text, e.g. "42"
         characteristic.addEventListener("characteristicvaluechanged", e => {
@@ -78,6 +110,44 @@
     $("connect").addEventListener("click", () => {
       if (device && device.gatt.connected) device.gatt.disconnect();
       else connect();
+    });
+    
+    async function send(cmd) {
+        if (!commandChar) return;
+        try {
+            const data = new TextEncoder().encode(cmd);
+            if (commandChar.writeValueWithoutResponse) {
+            await commandChar.writeValueWithoutResponse(data);
+            } else {
+            await commandChar.writeValue(data);
+            }
+        } catch (err) {
+            setStatus("Send failed: " + err.message);
+        }
+    }
+
+    document.querySelectorAll(".flbr button").forEach(btn => {
+        let pressed = false;
+
+        const start = (e) => {
+            e.preventDefault();
+            if (pressed) return;
+            pressed = true;
+            btn.classList.add("active");
+            send(btn.dataset.cmd);      // e.g. "F" while held
+        };
+
+        const stop = () => {
+            if (!pressed) return;
+            pressed = false;
+            btn.classList.remove("active");
+            send("S");                  // stop command
+        };
+
+        btn.addEventListener("pointerdown", start);
+        btn.addEventListener("pointerup", stop);
+        btn.addEventListener("pointerleave", stop);
+        btn.addEventListener("pointercancel", stop);
     });
   </script>
 </body>
